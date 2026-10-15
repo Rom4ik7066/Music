@@ -238,6 +238,7 @@ class MusicLibraryApp:
         self.palette = THEMES[self.theme]
         self.current_view = "link"
         self.previous_view = "link"
+        self.browser_process: subprocess.Popen | None = None
         self._page_animation_id: str | None = None
         self.theme_var = tk.StringVar(value=self.theme)
         self.root.configure(bg=self.palette["background"])
@@ -522,7 +523,7 @@ class MusicLibraryApp:
         SmoothButton(
             page,
             self.palette,
-            text="Изменить ссылку",
+            text="Вставить другую ссылку",
             variant="secondary",
             command=self._show_link_form,
         ).pack(fill="x", pady=(10, 0))
@@ -664,11 +665,25 @@ class MusicLibraryApp:
                     "--webview",
                     self.link,
                 ]
-            subprocess.Popen(command)
+            self.browser_process = subprocess.Popen(command)
+            self._watch_browser_process(self.browser_process)
         except OSError as error:
             self.error_message.set(
                 f"Не удалось запустить окно проигрывателя: {error}"
             )
+
+    def _watch_browser_process(self, process: subprocess.Popen) -> None:
+        if process.poll() is None:
+            self.root.after(300, lambda: self._watch_browser_process(process))
+            return
+        if self.browser_process is not process:
+            return
+
+        self.browser_process = None
+        if self.current_view == "library":
+            self.link = ""
+            self.service_name = ""
+            self._show_link_form()
 
 
 def main() -> None:
