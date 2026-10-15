@@ -55,24 +55,172 @@ THEMES = {
         "card": "#191e29",
         "accent": "#8b7cff",
         "accent_active": "#7769e8",
+        "accent_pressed": "#6558c9",
         "text": "#f4f5fb",
         "muted": "#a3a9ba",
         "error": "#ff8585",
         "entry": "#222836",
         "border": "#353c4d",
+        "card_hover": "#242c39",
+        "card_pressed": "#202734",
     },
     "light": {
         "background": "#f3f5f7",
         "card": "#ffffff",
         "accent": "#3867c8",
         "accent_active": "#2d55a8",
+        "accent_pressed": "#25478f",
         "text": "#202534",
         "muted": "#626b78",
         "error": "#b42318",
         "entry": "#ffffff",
         "border": "#cbd1da",
+        "card_hover": "#e7ebf0",
+        "card_pressed": "#dbe1e9",
     },
 }
+
+
+class SmoothButton(tk.Button):
+    def __init__(
+        self,
+        master: tk.Misc,
+        palette: dict[str, str],
+        variant: str = "secondary",
+        **kwargs,
+    ) -> None:
+        self.palette = palette
+        self.variant = variant
+        self._normal_color = (
+            palette["accent"] if variant == "primary" else palette["card"]
+        )
+        self._hover_color = (
+            palette["accent_active"]
+            if variant == "primary"
+            else palette["card_hover"]
+        )
+        self._pressed_color = (
+            palette["accent_pressed"]
+            if variant == "primary"
+            else palette["card_pressed"]
+        )
+        self._display_color = self._normal_color
+        self._animation_id: str | None = None
+        self._hovered = False
+        self._pressed = False
+
+        kwargs.setdefault("font", ("Segoe UI Semibold", 10))
+        kwargs.setdefault("padx", 18 if variant == "primary" else 14)
+        kwargs.setdefault("pady", 12 if variant == "primary" else 9)
+        super().__init__(
+            master,
+            bg=self._normal_color,
+            fg="#ffffff" if variant == "primary" else palette["text"],
+            activebackground=self._normal_color,
+            activeforeground="#ffffff" if variant == "primary" else palette["text"],
+            disabledforeground=palette["muted"],
+            relief="flat",
+            borderwidth=0,
+            highlightthickness=1,
+            highlightbackground=palette["border"],
+            highlightcolor=palette["accent"],
+            cursor="hand2",
+            takefocus=True,
+            **kwargs,
+        )
+        self.bind("<Enter>", self._on_enter, add="+")
+        self.bind("<Leave>", self._on_leave, add="+")
+        self.bind("<ButtonPress-1>", self._on_press, add="+")
+        self.bind("<ButtonRelease-1>", self._on_release, add="+")
+        self.bind("<FocusIn>", self._on_focus, add="+")
+        self.bind("<FocusOut>", self._on_blur, add="+")
+
+    @staticmethod
+    def _blend(start: str, end: str, amount: float) -> str:
+        start_rgb = tuple(int(start[index:index + 2], 16) for index in (1, 3, 5))
+        end_rgb = tuple(int(end[index:index + 2], 16) for index in (1, 3, 5))
+        channels = tuple(
+            round(source + (target - source) * amount)
+            for source, target in zip(start_rgb, end_rgb)
+        )
+        return "#" + "".join(f"{channel:02x}" for channel in channels)
+
+    def _animate_to(self, target: str) -> None:
+        if self._animation_id is not None:
+            try:
+                self.after_cancel(self._animation_id)
+            except tk.TclError:
+                pass
+            self._animation_id = None
+
+        start = self._display_color
+        frame_count = 8
+        frame_index = 0
+
+        def animate() -> None:
+            nonlocal frame_index
+            frame_index += 1
+            progress = frame_index / frame_count
+            eased = 1 - (1 - progress) ** 3
+            self._display_color = self._blend(start, target, eased)
+            try:
+                self.configure(
+                    bg=self._display_color,
+                    activebackground=self._display_color,
+                )
+            except tk.TclError:
+                self._animation_id = None
+                return
+            if frame_index < frame_count:
+                self._animation_id = self.after(16, animate)
+            else:
+                self._display_color = target
+                self._animation_id = None
+
+        self._animation_id = self.after(0, animate)
+
+    def _update_color(self) -> None:
+        if self._pressed:
+            target = self._pressed_color
+        elif self._hovered or self.focus_get() is self:
+            target = self._hover_color
+        else:
+            target = self._normal_color
+        self._animate_to(target)
+
+    def _on_enter(self, _event: tk.Event) -> None:
+        self._hovered = True
+        self._update_color()
+
+    def _on_leave(self, _event: tk.Event) -> None:
+        self._hovered = False
+        self._pressed = False
+        self._update_color()
+
+    def _on_press(self, _event: tk.Event) -> None:
+        self._pressed = True
+        self._update_color()
+
+    def _on_release(self, _event: tk.Event) -> None:
+        self._pressed = False
+        self._update_color()
+
+    def _on_focus(self, _event: tk.Event) -> None:
+        self.configure(highlightbackground=self.palette["accent"])
+        self._update_color()
+
+    def _on_blur(self, _event: tk.Event) -> None:
+        self.configure(highlightbackground=self.palette["border"])
+        self._update_color()
+
+    def destroy(self) -> None:
+        if self._animation_id is not None:
+            try:
+                self.after_cancel(self._animation_id)
+            except tk.TclError:
+                pass
+            self._animation_id = None
+        super().destroy()
 
 
 class MusicLibraryApp:
@@ -90,6 +238,7 @@ class MusicLibraryApp:
         self.palette = THEMES[self.theme]
         self.current_view = "link"
         self.previous_view = "link"
+        self._page_animation_id: str | None = None
         self.theme_var = tk.StringVar(value=self.theme)
         self.root.configure(bg=self.palette["background"])
         self._configure_styles()
@@ -138,33 +287,6 @@ class MusicLibraryApp:
             padding=12,
         )
         style.configure(
-            "Accent.TButton",
-            background=self.palette["accent"],
-            foreground="#ffffff",
-            borderwidth=0,
-            padding=(16, 12),
-            font=("Segoe UI Semibold", 10),
-        )
-        style.map(
-            "Accent.TButton",
-            background=[
-                ("active", self.palette["accent_active"]),
-                ("disabled", self.palette["border"]),
-            ],
-        )
-        style.configure(
-            "Secondary.TButton",
-            background=self.palette["card"],
-            foreground=self.palette["text"],
-            borderwidth=0,
-            padding=(14, 10),
-            font=("Segoe UI", 9),
-        )
-        style.map(
-            "Secondary.TButton",
-            background=[("active", self.palette["border"])],
-        )
-        style.configure(
             "Theme.TRadiobutton",
             background=self.palette["background"],
             foreground=self.palette["text"],
@@ -177,6 +299,12 @@ class MusicLibraryApp:
         )
 
     def _new_page(self) -> tk.Frame:
+        if self._page_animation_id is not None:
+            try:
+                self.root.after_cancel(self._page_animation_id)
+            except tk.TclError:
+                pass
+            self._page_animation_id = None
         for child in self.root.winfo_children():
             child.destroy()
         page = tk.Frame(
@@ -185,7 +313,8 @@ class MusicLibraryApp:
             padx=38,
             pady=32,
         )
-        page.pack(fill="both", expand=True)
+        page.place(relx=0, rely=0, relwidth=1, relheight=1, y=14)
+        self._animate_page_in(page)
         header = tk.Frame(page, bg=self.palette["background"])
         header.pack(fill="x")
         tk.Label(
@@ -195,10 +324,11 @@ class MusicLibraryApp:
             fg=self.palette["accent"],
             font=("Segoe UI Semibold", 10),
         ).pack(side="left")
-        ttk.Button(
+        SmoothButton(
             header,
+            self.palette,
             text="Назад" if self.current_view == "settings" else "Настройки",
-            style="Secondary.TButton",
+            variant="secondary",
             command=(
                 self._return_from_settings
                 if self.current_view == "settings"
@@ -206,6 +336,27 @@ class MusicLibraryApp:
             ),
         ).pack(side="right")
         return page
+
+    def _animate_page_in(self, page: tk.Frame) -> None:
+        frame_count = 9
+        distance = 14
+        frame_index = 0
+
+        def animate() -> None:
+            nonlocal frame_index
+            if not page.winfo_exists():
+                self._page_animation_id = None
+                return
+            frame_index += 1
+            progress = min(frame_index / frame_count, 1)
+            eased = 1 - (1 - progress) ** 3
+            page.place_configure(y=round(distance * (1 - eased)))
+            if frame_index < frame_count:
+                self._page_animation_id = self.root.after(16, animate)
+            else:
+                self._page_animation_id = None
+
+        self._page_animation_id = self.root.after(16, animate)
 
     def _show_link_form(self) -> None:
         self.current_view = "link"
@@ -240,10 +391,11 @@ class MusicLibraryApp:
             fg=self.palette["muted"],
             font=("Segoe UI", 9),
         ).pack(anchor="w", pady=(12, 20))
-        ttk.Button(
+        SmoothButton(
             page,
+            self.palette,
             text="Продолжить",
-            style="Accent.TButton",
+            variant="primary",
             command=self._connect,
         ).pack(fill="x")
         tk.Label(
@@ -322,16 +474,18 @@ class MusicLibraryApp:
             wraplength=430,
             justify="left",
         ).pack(anchor="w", pady=(18, 20))
-        ttk.Button(
+        SmoothButton(
             page,
+            self.palette,
             text="Открыть в окне проигрывателя",
-            style="Accent.TButton",
+            variant="primary",
             command=self._open_link,
         ).pack(fill="x")
-        ttk.Button(
+        SmoothButton(
             page,
+            self.palette,
             text="Изменить ссылку",
-            style="Secondary.TButton",
+            variant="secondary",
             command=self._show_link_form,
         ).pack(fill="x", pady=(10, 0))
         tk.Label(
@@ -376,10 +530,11 @@ class MusicLibraryApp:
                 command=lambda selected=value: self._set_theme(selected),
             ).pack(side="left", padx=(0, 24))
 
-        ttk.Button(
+        SmoothButton(
             page,
+            self.palette,
             text="Проверить обновления",
-            style="Accent.TButton",
+            variant="primary",
             command=self._check_for_updates,
         ).pack(fill="x")
         tk.Label(
