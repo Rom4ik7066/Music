@@ -3,6 +3,8 @@
 Небольшое Windows-приложение со встроенным окном проигрывателя для
 SoundCloud, Яндекс Музыки, Spotify, YouTube и YouTube Music.
 
+[![Скачать MyMusic.exe](https://img.shields.io/badge/%D0%A1%D0%BA%D0%B0%D1%87%D0%B0%D1%82%D1%8C-MyMusic.exe-2f81f7?style=for-the-badge)](https://github.com/Rom4ik7066/Music/releases/latest/download/MyMusic.exe)
+
 ## Запуск приложения
 
 Запустите `dist\MyMusic.exe`, вставьте ссылку на трек, альбом, плейлист или
@@ -40,7 +42,7 @@ Python и библиотеки приложения включены в EXE. Д�
 скачанный файл.
 
 Чтобы опубликовать обновление, отправьте изменения в GitHub и создайте Release
-с версией в формате `v0.1.1` (после текущей `v0.1 alfa`). Workflow GitHub Actions
+с новой версией, например `v0.1.2`. Workflow GitHub Actions
 соберёт `MyMusic.exe` и прикрепит его к релизу. Версии релизов должны следовать
 формату `vMAJOR.MINOR.PATCH`; проверка использует последний стабильный релиз.
 
