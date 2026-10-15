@@ -57,6 +57,7 @@ class UpdateVersionTests(unittest.TestCase):
 
     def test_same_or_older_release_is_not_newer(self) -> None:
         self.assertFalse(is_newer_version("v0.1.0-alpha"))
+        self.assertFalse(is_newer_version("v0.1.1", current="0.1.1"))
         self.assertFalse(is_newer_version("v0.0.9"))
 
     def test_invalid_version_is_ignored(self) -> None:

@@ -8,9 +8,8 @@ from pathlib import Path
 from urllib.parse import urlparse
 from typing import Optional
 
+from app_version import APP_VERSION
 
-APP_VERSION = "0.1.0-alpha"
-DISPLAY_VERSION = "v0.1 alfa"
 GITHUB_REPOSITORY = "Rom4ik7066/Music"
 RELEASE_API_URL = (
     f"https://api.github.com/repos/{GITHUB_REPOSITORY}/releases/latest"

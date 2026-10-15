@@ -45,7 +45,8 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
 from music_library import UnsupportedMusicLink, parse_music_link
-from update_service import APP_VERSION, DISPLAY_VERSION, fetch_latest_release, download_update
+from app_version import APP_VERSION, DISPLAY_VERSION
+from update_service import download_update, fetch_latest_release
 
 
 THEMES = {
