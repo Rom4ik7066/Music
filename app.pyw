@@ -379,10 +379,28 @@ class MusicLibraryApp:
             justify="left",
         ).pack(anchor="w", pady=(0, 20))
 
-        self.link_entry = ttk.Entry(page, style="Music.TEntry", font=("Segoe UI", 10))
-        self.link_entry.pack(fill="x")
+        entry_row = tk.Frame(page, bg=self.palette["background"])
+        entry_row.pack(fill="x")
+        self.link_entry = ttk.Entry(
+            entry_row,
+            style="Music.TEntry",
+            font=("Segoe UI", 10),
+        )
+        self.link_entry.pack(side="left", fill="x", expand=True)
+        SmoothButton(
+            entry_row,
+            self.palette,
+            text="Вставить",
+            variant="secondary",
+            command=self._paste_link,
+            font=("Segoe UI", 9),
+            padx=10,
+            pady=8,
+        ).pack(side="left", padx=(8, 0))
         self.link_entry.bind("<Return>", lambda _event: self._connect())
-        self.link_entry.focus_set()
+        for sequence in ("<Control-v>", "<Control-V>", "<Shift-Insert>", "<<Paste>>"):
+            self.link_entry.bind(sequence, self._paste_link)
+        self.root.after(100, self._focus_link_entry)
 
         tk.Label(
             page,
@@ -414,6 +432,26 @@ class MusicLibraryApp:
             fg=self.palette["muted"],
             font=("Segoe UI", 9),
         ).pack(anchor="w", side="bottom", pady=(16, 0))
+
+    def _focus_link_entry(self) -> None:
+        if self.link_entry.winfo_exists():
+            self.link_entry.focus_set()
+
+    def _paste_link(self, _event: tk.Event | None = None) -> str:
+        try:
+            value = self.root.clipboard_get().strip()
+        except tk.TclError:
+            value = ""
+        if not value:
+            self.error_message.set("Буфер обмена пуст. Скопируйте ссылку и попробуйте снова.")
+            return "break"
+
+        self.link_entry.delete(0, tk.END)
+        self.link_entry.insert(0, value)
+        self.link_entry.icursor(tk.END)
+        self.link_entry.focus_set()
+        self.error_message.set("")
+        return "break"
 
     def _connect(self) -> None:
         try:
