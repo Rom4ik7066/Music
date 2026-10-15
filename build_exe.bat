@@ -1,5 +1,18 @@
 @echo off
 setlocal
+
+fltmc >nul 2>&1
+if not errorlevel 1 goto :admin
+
+echo Requesting administrator privileges...
+set "ELEVATE_SCRIPT=%TEMP%\GitasMusic-admin-%RANDOM%.vbs"
+> "%ELEVATE_SCRIPT%" echo Set UAC = CreateObject^("Shell.Application"^)
+>> "%ELEVATE_SCRIPT%" echo UAC.ShellExecute "%~f0", "", "%~dp0", "runas", 1
+cscript //nologo "%ELEVATE_SCRIPT%"
+del "%ELEVATE_SCRIPT%" >nul 2>&1
+exit /b
+
+:admin
 cd /d "%~dp0"
 
 where python >nul 2>nul

@@ -1,8 +1,10 @@
 import ctypes
 import importlib.util
+import json
 import os
 import subprocess
 import sys
+from pathlib import Path
 
 
 def _show_startup_error(message: str) -> None:
@@ -40,24 +42,42 @@ if len(sys.argv) >= 3 and sys.argv[1] == "--webview":
     sys.exit(0)
 
 import tkinter as tk
-from tkinter import ttk
+from tkinter import filedialog, messagebox, ttk
 
 from music_library import UnsupportedMusicLink, parse_music_link
+from update_service import APP_VERSION, DISPLAY_VERSION, fetch_latest_release, download_update
 
 
-BACKGROUND = "#10131b"
-CARD = "#191e29"
-ACCENT = "#8b7cff"
-TEXT = "#f4f5fb"
-MUTED = "#a3a9ba"
-ERROR = "#ff8585"
+THEMES = {
+    "dark": {
+        "background": "#10131b",
+        "card": "#191e29",
+        "accent": "#8b7cff",
+        "accent_active": "#7769e8",
+        "text": "#f4f5fb",
+        "muted": "#a3a9ba",
+        "error": "#ff8585",
+        "entry": "#222836",
+        "border": "#353c4d",
+    },
+    "light": {
+        "background": "#f3f5f7",
+        "card": "#ffffff",
+        "accent": "#3867c8",
+        "accent_active": "#2d55a8",
+        "text": "#202534",
+        "muted": "#626b78",
+        "error": "#b42318",
+        "entry": "#ffffff",
+        "border": "#cbd1da",
+    },
+}
 
 
 class MusicLibraryApp:
     def __init__(self, root: tk.Tk) -> None:
         self.root = root
         self.root.title("Моя музыка")
-        self.root.configure(bg=BACKGROUND)
         self.root.resizable(False, False)
         self.root.geometry("520x410")
         self._center_window()
@@ -65,8 +85,36 @@ class MusicLibraryApp:
         self.link = ""
         self.service_name = ""
         self.error_message = tk.StringVar()
+        self.theme = self._load_theme()
+        self.palette = THEMES[self.theme]
+        self.current_view = "link"
+        self.previous_view = "link"
+        self.theme_var = tk.StringVar(value=self.theme)
+        self.root.configure(bg=self.palette["background"])
         self._configure_styles()
         self._show_link_form()
+
+    @staticmethod
+    def _settings_path() -> Path:
+        app_data = os.environ.get("APPDATA", str(Path.home()))
+        return Path(app_data) / "GitasMusic" / "settings.json"
+
+    def _load_theme(self) -> str:
+        try:
+            with self._settings_path().open(encoding="utf-8") as settings_file:
+                theme = json.load(settings_file).get("theme", "dark")
+        except (OSError, ValueError, AttributeError):
+            return "dark"
+        return theme if theme in THEMES else "dark"
+
+    def _save_theme(self) -> None:
+        path = self._settings_path()
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            with path.open("w", encoding="utf-8") as settings_file:
+                json.dump({"theme": self.theme}, settings_file)
+        except OSError:
+            pass
 
     def _center_window(self) -> None:
         self.root.update_idletasks()
@@ -80,17 +128,17 @@ class MusicLibraryApp:
         style.theme_use("clam")
         style.configure(
             "Music.TEntry",
-            fieldbackground="#222836",
-            foreground=TEXT,
-            insertcolor=TEXT,
-            bordercolor="#353c4d",
-            lightcolor="#353c4d",
-            darkcolor="#353c4d",
+            fieldbackground=self.palette["entry"],
+            foreground=self.palette["text"],
+            insertcolor=self.palette["text"],
+            bordercolor=self.palette["border"],
+            lightcolor=self.palette["border"],
+            darkcolor=self.palette["border"],
             padding=12,
         )
         style.configure(
             "Accent.TButton",
-            background=ACCENT,
+            background=self.palette["accent"],
             foreground="#ffffff",
             borderwidth=0,
             padding=(16, 12),
@@ -98,47 +146,82 @@ class MusicLibraryApp:
         )
         style.map(
             "Accent.TButton",
-            background=[("active", "#7769e8"), ("disabled", "#514c79")],
+            background=[
+                ("active", self.palette["accent_active"]),
+                ("disabled", self.palette["border"]),
+            ],
         )
         style.configure(
             "Secondary.TButton",
-            background=CARD,
-            foreground=TEXT,
+            background=self.palette["card"],
+            foreground=self.palette["text"],
             borderwidth=0,
             padding=(14, 10),
             font=("Segoe UI", 9),
         )
-        style.map("Secondary.TButton", background=[("active", "#252c3a")])
+        style.map(
+            "Secondary.TButton",
+            background=[("active", self.palette["border"])],
+        )
+        style.configure(
+            "Theme.TRadiobutton",
+            background=self.palette["background"],
+            foreground=self.palette["text"],
+            font=("Segoe UI", 10),
+        )
+        style.map(
+            "Theme.TRadiobutton",
+            background=[("active", self.palette["background"])],
+            foreground=[("disabled", self.palette["muted"])],
+        )
 
     def _new_page(self) -> tk.Frame:
         for child in self.root.winfo_children():
             child.destroy()
-        page = tk.Frame(self.root, bg=BACKGROUND, padx=38, pady=32)
+        page = tk.Frame(
+            self.root,
+            bg=self.palette["background"],
+            padx=38,
+            pady=32,
+        )
         page.pack(fill="both", expand=True)
+        header = tk.Frame(page, bg=self.palette["background"])
+        header.pack(fill="x")
         tk.Label(
-            page,
+            header,
             text="♫  MY MUSIC",
-            bg=BACKGROUND,
-            fg=ACCENT,
+            bg=self.palette["background"],
+            fg=self.palette["accent"],
             font=("Segoe UI Semibold", 10),
-        ).pack(anchor="w")
+        ).pack(side="left")
+        ttk.Button(
+            header,
+            text="Назад" if self.current_view == "settings" else "Настройки",
+            style="Secondary.TButton",
+            command=(
+                self._return_from_settings
+                if self.current_view == "settings"
+                else self._show_settings
+            ),
+        ).pack(side="right")
         return page
 
     def _show_link_form(self) -> None:
+        self.current_view = "link"
         self.error_message.set("")
         page = self._new_page()
         tk.Label(
             page,
             text="Где ваша музыка?",
-            bg=BACKGROUND,
-            fg=TEXT,
+            bg=self.palette["background"],
+            fg=self.palette["text"],
             font=("Segoe UI Semibold", 22),
         ).pack(anchor="w", pady=(26, 8))
         tk.Label(
             page,
             text="Вставьте ссылку на плейлист, альбом, профиль или трек.",
-            bg=BACKGROUND,
-            fg=MUTED,
+            bg=self.palette["background"],
+            fg=self.palette["muted"],
             font=("Segoe UI", 10),
             wraplength=430,
             justify="left",
@@ -152,8 +235,8 @@ class MusicLibraryApp:
         tk.Label(
             page,
             text="SoundCloud  ·  Яндекс Музыка  ·  Spotify\nYouTube  ·  YouTube Music",
-            bg=BACKGROUND,
-            fg=MUTED,
+            bg=self.palette["background"],
+            fg=self.palette["muted"],
             font=("Segoe UI", 9),
         ).pack(anchor="w", pady=(12, 20))
         ttk.Button(
@@ -165,8 +248,8 @@ class MusicLibraryApp:
         tk.Label(
             page,
             textvariable=self.error_message,
-            bg=BACKGROUND,
-            fg=ERROR,
+            bg=self.palette["background"],
+            fg=self.palette["error"],
             font=("Segoe UI", 9),
             wraplength=430,
             justify="left",
@@ -174,8 +257,8 @@ class MusicLibraryApp:
         tk.Label(
             page,
             text="Откройте ссылку во встроенном окне проигрывателя.",
-            bg=BACKGROUND,
-            fg=MUTED,
+            bg=self.palette["background"],
+            fg=self.palette["muted"],
             font=("Segoe UI", 9),
         ).pack(anchor="w", side="bottom", pady=(16, 0))
 
@@ -191,37 +274,38 @@ class MusicLibraryApp:
         self._show_library()
 
     def _show_library(self) -> None:
+        self.current_view = "library"
         self.error_message.set("")
         page = self._new_page()
         tk.Label(
             page,
             text="Ваша музыка",
-            bg=BACKGROUND,
-            fg=TEXT,
+            bg=self.palette["background"],
+            fg=self.palette["text"],
             font=("Segoe UI Semibold", 22),
         ).pack(anchor="w", pady=(26, 8))
         tk.Label(
             page,
             text="Сервис подключён",
-            bg=BACKGROUND,
-            fg=MUTED,
+            bg=self.palette["background"],
+            fg=self.palette["muted"],
             font=("Segoe UI", 10),
         ).pack(anchor="w", pady=(0, 22))
 
-        card = tk.Frame(page, bg=CARD, padx=18, pady=16)
+        card = tk.Frame(page, bg=self.palette["card"], padx=18, pady=16)
         card.pack(fill="x")
         tk.Label(
             card,
             text=self.service_name,
-            bg=CARD,
-            fg=ACCENT,
+            bg=self.palette["card"],
+            fg=self.palette["accent"],
             font=("Segoe UI Semibold", 11),
         ).pack(anchor="w")
         tk.Label(
             card,
             text=self.link,
-            bg=CARD,
-            fg=TEXT,
+            bg=self.palette["card"],
+            fg=self.palette["text"],
             font=("Segoe UI", 9),
             wraplength=390,
             justify="left",
@@ -231,8 +315,8 @@ class MusicLibraryApp:
             page,
             text="Откройте ссылку в сервисе, чтобы увидеть библиотеку "
             "и включить доступную вам музыку.",
-            bg=BACKGROUND,
-            fg=MUTED,
+            bg=self.palette["background"],
+            fg=self.palette["muted"],
             font=("Segoe UI", 9),
             wraplength=430,
             justify="left",
@@ -252,12 +336,128 @@ class MusicLibraryApp:
         tk.Label(
             page,
             textvariable=self.error_message,
-            bg=BACKGROUND,
-            fg=ERROR,
+            bg=self.palette["background"],
+            fg=self.palette["error"],
             font=("Segoe UI", 9),
             wraplength=430,
             justify="left",
         ).pack(anchor="w", pady=(10, 0))
+
+    def _show_settings(self) -> None:
+        if self.current_view != "settings":
+            self.previous_view = self.current_view
+        self.current_view = "settings"
+        page = self._new_page()
+        tk.Label(
+            page,
+            text="Настройки",
+            bg=self.palette["background"],
+            fg=self.palette["text"],
+            font=("Segoe UI Semibold", 22),
+        ).pack(anchor="w", pady=(26, 20))
+        tk.Label(
+            page,
+            text="Тема оформления",
+            bg=self.palette["background"],
+            fg=self.palette["muted"],
+            font=("Segoe UI", 10),
+        ).pack(anchor="w", pady=(0, 8))
+        self.theme_var.set(self.theme)
+        choices = tk.Frame(page, bg=self.palette["background"])
+        choices.pack(anchor="w", pady=(0, 20))
+        for value, label in (("dark", "Тёмная"), ("light", "Светлая")):
+            ttk.Radiobutton(
+                choices,
+                text=label,
+                value=value,
+                variable=self.theme_var,
+                style="Theme.TRadiobutton",
+                command=lambda selected=value: self._set_theme(selected),
+            ).pack(side="left", padx=(0, 24))
+
+        ttk.Button(
+            page,
+            text="Проверить обновления",
+            style="Accent.TButton",
+            command=self._check_for_updates,
+        ).pack(fill="x")
+        tk.Label(
+            page,
+            text=f"Версия приложения: {DISPLAY_VERSION}",
+            bg=self.palette["background"],
+            fg=self.palette["muted"],
+            font=("Segoe UI", 9),
+        ).pack(anchor="w", side="bottom")
+
+    def _return_from_settings(self) -> None:
+        if self.previous_view == "library" and self.link:
+            self._show_library()
+        else:
+            self._show_link_form()
+
+    def _set_theme(self, theme: str) -> None:
+        if theme not in THEMES or theme == self.theme:
+            return
+        self.theme = theme
+        self.palette = THEMES[theme]
+        self.root.configure(bg=self.palette["background"])
+        self._configure_styles()
+        self._save_theme()
+        self._show_settings()
+
+    def _check_for_updates(self) -> None:
+        try:
+            release = fetch_latest_release()
+        except (OSError, ValueError) as error:
+            messagebox.showerror(
+                "Проверка обновлений",
+                f"Не удалось проверить GitHub Releases.\n\n{error}",
+                parent=self.root,
+            )
+            return
+
+        if release is None:
+            messagebox.showinfo(
+                "Проверка обновлений",
+                f"Установлена последняя версия ({DISPLAY_VERSION}).",
+                parent=self.root,
+            )
+            return
+
+        answer = messagebox.askyesno(
+            "Доступно обновление",
+            f"Доступна версия {release['tag_name']}.\n"
+            f"Текущая версия: {DISPLAY_VERSION} ({APP_VERSION}).\n\n"
+            "Скачать обновление?",
+            parent=self.root,
+        )
+        if not answer:
+            return
+
+        destination = filedialog.asksaveasfilename(
+            parent=self.root,
+            title="Сохранить обновление",
+            initialfile="MyMusic.exe",
+            defaultextension=".exe",
+            filetypes=(("Приложение Windows", "*.exe"),),
+        )
+        if not destination:
+            return
+        try:
+            download_update(release["asset_url"], destination)
+        except (OSError, ValueError) as error:
+            messagebox.showerror(
+                "Загрузка обновления",
+                f"Не удалось скачать обновление.\n\n{error}",
+                parent=self.root,
+            )
+            return
+        messagebox.showinfo(
+            "Обновление загружено",
+            "Файл обновления скачан. Закройте приложение и запустите "
+            "скачанный MyMusic.exe.",
+            parent=self.root,
+        )
 
     def _open_link(self) -> None:
         try:
